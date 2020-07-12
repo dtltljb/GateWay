@@ -1,0 +1,156 @@
+
+串口操作权限问题记录：2019-1-25
+https://www.cnblogs.com/lvchaoshun/p/5911903.html
+
+可以用如下命令查看串口信息：
+
+ls -l /dev/ttyUSB*来查看相关的信息。
+
+但是普通用户没有usb操作权限(函数open()打不开串口:refused)，如果我们想在ROS程序里面打开串口，就得首先放开串口权限。
+法一：
+
+为了使普通用户也能正常使用USB转串口设备, 可以通过增加udev规则来实现：
+
+创建文件/etc/udev/rules.d/70-ttyusb.rules
+	
+sudo gedit /etc/udev/rules.d/70-ttyusb.rules
+
+文件内容为：
+
+KERNEL=="ttyUSB[0-9]*", MODE="0666"
+
+增加访问权限：
+	
+sudo chmod 666 /dev/ttyUSB0
+
+重新插入USB转串口设备，普通用户就有权限访问了。
+串口编程中使用open()函数就能打开串口了.
+
+法二：
+sudo chmod a+rw /dev/ttyUSB0
+ 即可。(该方法不能给用户永久访问权限，一次性的，下次拔插串口线或者开关机就无效了)
+
+
+调试记录
+
+
+(1)
+	a> .report log debug okay
+
+	b> .register locker log
+	step 1:
+	config channel receive thread => uart receive register cmd => response locker register resource => locke ensure register result;
+	step 2:
+	report to server locker register result => receive from server response result;
+(2)
+cmd	=33	,remote	open 
+
+uart packet data len=25
+07 f2 fc 01 0f 01 01 33 00 00 07 f2 aa 55 20 19 02 16 22 15 11 00 00 59 f0 
+
+uart packet data len=33
+07 f2 fc 01 15 01 01 31 00 00 07 f2 00 00 00 00 00 00 00 00 20 19 02 16 22 15 20 00 00 00 00 8b c4 
+
+
+(3)
+cmd	=	32,emergency control
+uart packet data len=25  ,server send locker-address  = 0000ffff;
+ 0 0 fc 1 f 1 1 32 0 0 ff ff 20 19 2 14 23 27 20 0 aa 55 0 26 59   
+
+
+
+(4)
+cmd	=	35,remote	authorize 
+uart packet data len=25
+07 f2 fc 01 10 01 01 35 00 00 07 f2 02 01 01 12 34 56 78 11 11 22 22 6f d7 
+uart packet data len=25
+07 f2 fc 01 10 01 01 35 00 00 07 f2 02 02 01 13 06 84 52 59 85 45 12 3a 0b 
+uart packet data len=25
+07 f2 fc 01 10 01 01 35 00 00 07 f2 02 03 01 12 34 11 11 22 22 33 33 ae 74 
+
+uart packet data len=25
+07 f2 fc 01 10 01 01 35 00 00 07 f2 02 04 01 12 34 56 11 11 11 22 22 23 ce 
+
+
+
+
+(5)
+cmd	=	3b,remote	config 
+uart packet data len=161
+ 07 f2 fc 01 94 01 01 3b 00 00 07 f2 01 01 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 08 00 23 59 00 00 00 00 00 f9 d5 
+uart packet data len=89
+ 07 f2 fc 01 50 01 01 3b 00 00 07 f2 02 01 20 19 01 01 00 00 20 19 02 29 00 00 20 19 01 01 00 00 20 19 02 29 00 00 20 19 01 01 00 00 20 19 02 29 00 00 20 19 01 01 00 00 20 19 02 29 00 00 20 19 01 01 00 00 20 19 02 29 00 00 20 19 01 01 00 00 20 19 02 29 00 00 08 20 c0 
+
+uart packet data len=33
+  07 f2 fc 01 20 01 01 3c 00 00 07 f2 01 20 19 02 16 19 39 12 00 07 04 e0 0a 16 03 00 50 01 01 40 07 f2 38 00 00 90 00 0c b2
+
+(6)
+cmd	=3b	,remote	load finger
+
+work channel:
+step 1:  
+	work_channel send cmd = 0x38 ==> config_channel receive cmd = 0x34,response to work_channel;
+step 2:
+  work_channel send single to config channel(worktype = remote_load_cmd);
+  
+step 3:
+  config_channel ==> anlysis_work_type call function send cmd = 0x39 mutl frame data;
+  locker receive okay ==> response cmd = 0x3a,gateway send cmd = 0x39(control type =0x01 change channel) to work channel;
+step 4:
+  work channel recevie reponse ,config channel response to server,load okay.
+  
+  
+  
+uart packet data len=17
+ 7 f2 fc 1 8 0 0 3b 0 0 7 f2 6 dd d0 f8 67
+
+cmd	= 39,remote load finger
+
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 01 39 00 00 07 f2 02 01 00 00 00 37 62 11 01 7c 84 32 12 26 64 22 02 5a 88 24 22 33 44 44 34 66 48 47 64 24 55 56 43 45 27 57 45 21 37 61 22 45 4b 83 44 33 45 64 22 45 3a 94 53 14 65 35 21 32 8c 54 42 13 57 52 21 25 3e 64 31 14 26 55 22 24 38 b7 21 11 42 68 20 22 25 ba 33 12 27 44 11 44 3d 56 33 01 1a 62 11 22 3d 75 21 21 45 44 33 22 88 88 33 32 35 65 33 32 4a 68 43 12 49 43 20 10 6a 94 32 12 65 60 43 15 b3 91 43 22 83 63 22 25 a5 92 32 35 53 44 32 36 85 85 44 48 42 12 44 6a 83 33 44 35 41 33 54 56 84 54 65 42 33 93 53 43 54 93 64 22 26 95 32 34 64 94 53 31 5b 32 13 43 5a 53 34 82 88 42 22 72 84 33 44 32 55 83 21 33 a8 64 33 21 39 44 23 22 5d 63 23 13 14 96 23 12 39 b5 32 23 34 77 43 23 35 b4 36 15 47 35 32 26 57 0d 80 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 02 66 46 13 34 55 54 23 55 5b 53 02 35 75 42 21 74 79 74 22 36 54 14 32 5a 93 53 12 36 63 22 24 4a a4 34 24 38 53 43 38 55 65 44 13 47 84 33 37 48 74 34 24 34 84 33 34 48 84 33 68 64 12 23 57 57 23 35 59 43 32 33 46 97 22 44 45 75 32 33 54 97 62 32 23 97 32 21 35 a7 63 21 23 76 33 22 44 a9 26 31 44 37 65 32 43 38 58 42 44 64 71 21 45 85 95 22 13 68 54 33 15 95 75 43 32 12 66 36 43 57 86 36 33 34 72 24 44 39 b3 25 43 33 62 23 55 38 b5 34 22 24 56 43 33 43 aa 63 22 16 56 53 44 35 67 73 23 38 64 24 35 48 85 52 36 53 51 31 59 57 64 24 46 34 42 32 49 69 44 24 43 24 24 23 38 8b 44 43 55 35 44 22 47 59 63 52 34 67 24 33 36 7a 24 44 22 4a 24 10 33 3e 34 21 21 2b 22 11 22 2f 42 11 01 4c 31 10 11 6e 41 11 26 72 42 32 28 c5 83 3e
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 03 33 42 28 53 34 31 49 74 36 52 23 25 66 52 46 23 87 63 32 3b 82 13 33 3b 81 12 31 4a 72 13 43 3d 41 13 22 39 92 12 33 3b 92 02 22 14 a2 22 22 36 e4 22 32 46 82 21 32 4a a5 11 21 39 52 11 22 3f 44 01 32 37 52 11 33 6e 53 22 45 44 54 23 66 66 56 35 43 33 34 38 38 36 28 37 63 44 23 39 55 44 25 49 54 33 12 48 66 24 24 69 23 33 44 55 37 21 88 77 21 48 83 23 33 65 88 41 11 5c 44 21 22 6a 45 22 00 3a 82 10 01 4c 83 11 23 47 43 33 34 4c 54 45 01 45 43 44 56 38 76 47 44 46 32 34 56 56 66 27 32 18 82 33 34 3b 72 34 12 3d 61 11 33 4c 42 13 12 3d 31 11 23 3a 84 23 01 59 41 11 02 7e 53 12 12 46 c3 20 12 38 95 11 10 26 e2 10 11 26 b3 21 02 16 82 32 12 3a a6 43 45 43 34 73 66 43 28 65 52 33 34 56 26 54 28 85 53 33 33 58 37 54 bc 8d 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 04 35 75 35 43 23 43 59 65 45 74 22 24 44 34 33 73 7a 73 21 32 58 32 22 82 5d 23 22 22 76 32 13 64 7b 34 11 12 94 11 23 46 d7 13 11 12 34 20 12 3a f5 31 22 34 35 21 14 27 f3 33 02 56 22 11 14 3c c1 24 13 38 43 00 34 4e 82 12 10 27 53 10 12 2f 93 21 13 26 43 22 14 2e 93 33 34 69 31 42 46 68 53 42 00 23 a5 11 22 44 d5 41 11 13 a5 31 32 35 b6 51 20 23 48 52 32 45 6a 82 33 32 44 84 45 23 4a 55 43 33 48 42 55 33 5a 53 63 53 35 44 65 41 58 54 75 43 32 36 86 43 33 57 12 24 44 54 24 36 68 96 22 23 64 52 24 55 99 64 33 33 94 42 24 63 77 46 22 34 55 22 23 8a 56 45 20 42 82 11 12 63 f4 31 22 32 82 21 23 42 f2 21 32 33 75 30 32 33 e7 31 12 36 34 21 24 3d 95 32 12 26 63 11 13 3d b3 11 11 15 61 10 12 2d c1 21 11 26 71 21 23 5c 4b 20 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 05 a2 22 33 75 33 34 45 88 54 34 32 76 33 34 34 79 44 43 22 67 36 24 33 6a 46 34 23 57 33 23 33 8a 37 34 24 55 14 33 47 78 37 44 43 22 44 52 77 54 58 73 54 21 13 43 a7 24 58 63 44 01 15 56 66 33 25 5a 44 11 58 32 47 24 59 55 22 22 b8 21 12 33 a8 42 23 34 95 33 23 46 95 64 24 63 41 32 38 86 74 63 12 74 71 32 45 85 94 34 41 32 45 64 53 31 88 75 13 46 21 23 35 7a 86 33 01 25 72 10 03 5b c4 00 10 29 40 10 10 4e 92 21 23 25 63 42 35 3a a3 62 43 76 22 12 45 a7 53 35 53 54 42 33 44 8a 54 35 44 32 54 43 64 46 68 36 22 58 42 12 33 6c 64 33 32 46 21 13 54 7c 43 45 32 23 32 23 47 68 86 67 21 23 33 32 33 58 98 66 e3 c0 cf c8 f7 c1 e3 c1 ff f9 7b e7 ff 00 00 00 e1 9a c9 c8 f3 c1 f7 c3 b7 34 70 ff ff 00 00 00 23 3b 23 2b 96 91 10 89  
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 06 b4 d3 16 84 fd 3f 1d 00 00 00 b6 78 a6 49 9e 11 b4 71 56 d4 cc ff 1d 00 00 00 8c 6c 8c 7c 1c 59 0e 79 df dc 06 ce 3c 00 00 00 4c 6e dc 5e 2c 1b 26 5a df d5 a2 26 3c 00 00 00 66 df 48 cf 2c 2a 24 6f 87 c7 fb 7e 7c 00 00 00 72 0f 36 4d 28 6b 6c 62 ff ef ef 36 5c 00 00 00 0e 6f 0e 67 78 f3 76 5f f9 fd ee 6a 9d 00 00 00 0c 7b 25 bd 78 33 6c 33 58 58 34 d1 bd 00 00 00 24 73 61 7e 32 33 26 7b 58 30 be df ed 00 00 00 e4 65 c3 74 32 53 66 5b 54 72 be ad ed 00 00 00 c7 31 86 31 b6 4f c6 53 f4 70 3a 12 ed 00 00 00 87 31 a7 31 f6 4b ce 13 f4 f0 63 9f bd 00 00 00 f9 90 c8 98 a5 c7 73 c7 22 21 3d e3 f6 00 00 00 e3 90 ca 98 b7 c5 33 c7 20 21 3d df fe 00 00 00 24 74 aa 38 98 71 b4 f1 94 00 28 38 1d 00 00 00 74 74 f0 f4 98 71 01 5a 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 07 b4 71 94 50 0c f8 1f 00 00 00 e4 6c c6 78 3c 73 18 53 f7 74 24 c3 1c 00 00 00 6c 66 cc 71 39 3b 32 5b d7 fd 20 9a 1c 00 00 00 60 d8 6c c9 38 6f 24 67 e7 e3 c9 af 7c 00 00 00 72 5c 76 4c 28 e3 24 66 a7 e3 c9 ff 1c 00 00 00 74 4f 65 6d 38 b3 7c 73 1f 49 e0 e3 10 00 00 00 cc 73 e0 bd 78 33 6c 31 0e 4a e6 f3 35 00 00 00 59 5d d1 dc 31 37 66 39 02 12 12 cd f5 00 00 00 fc 5d b3 6c 32 4f 66 5b 67 7a 58 89 f5 00 00 00 9e 33 3e 33 36 43 16 53 ff fb f2 8c bd 00 00 00 8f 33 23 33 7e 43 9e 13 fd d4 f2 9f b9 00 00 00 38 d6 06 96 35 86 31 c6 3a 38 1c c3 e3 00 00 00 18 ce 0a d6 31 e6 31 c6 10 19 0c e3 e3 00 00 00 6d 5c 67 38 b9 71 b9 e5 14 11 e0 3b d7 00 00 00 ed 34 e9 71 b9 71 b9 61 14 0c 6c 79 d7 00 00 00 ed ac cc ab 39 73 81 3e 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 08 3d 73 15 24 4c f2 1e 00 00 00 2d c6 85 27 39 b3 35 53 d7 fd 2c 02 0c 00 00 00 61 c4 2f 86 38 cf 32 d7 e5 f1 d9 ff 04 00 00 00 53 b1 26 96 38 cf 18 d7 e4 e1 d9 ff 0c 00 00 00 86 7d 92 eb 1d 13 0c 95 2e 6e 62 5d 45 00 00 00 84 af 92 bd 39 73 3c 6d 1e 0e a0 04 40 00 00 00 69 3c 33 1c 15 5f 56 78 36 8a ca 1c f4 00 00 00 7c 19 33 19 14 5e 52 7a af ee c4 cc f4 00 00 00 ce b9 64 b0 72 52 3a 72 ed d7 16 ee b9 00 00 00 ce a8 f7 30 7e 42 3e 33 c4 d6 33 ff b9 00 00 00 23 6e 7b a6 65 96 6d 8e 3a 3a 80 24 c0 00 00 00 69 6e 2d ae 61 b6 49 ad 18 1a 08 27 c0 00 00 00 2d 9e 2d 77 15 65 99 a5 11 39 ef 16 c3 00 00 00 0d 8e 0f 66 9d 61 99 e1 15 3c ef 63 c3 00 00 00 ac dd a4 c5 89 f3 0d f3 13 34 fd 82 91 00 00 00 3c 54 ac 45 89 b1 1a b5
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 09 0d d1 13 19 cc bf 41 00 00 00 16 8e 5a a6 1a df 5a d5 19 d9 ec bf 01 00 00 00 02 de 0b be 39 df 18 d7 7c fc 8c dd 05 00 00 00 83 5e c1 f6 19 99 08 9d f6 f6 f7 f9 4c 00 00 00 85 f6 43 f6 19 5b 3c db fc f6 97 eb 4c 00 00 00 74 b6 26 b6 94 5b 9c 3a f0 f0 8c 00 36 00 00 00 72 b8 66 b8 94 5a 9a 3a 20 e4 8d 42 36 00 00 00 6e 21 67 61 9a 54 9e 12 c0 d0 66 9b af 00 00 00 6f 20 77 62 de 64 9e 12 e0 c0 4e bb bd 00 00 00 64 7c 6c bc 66 b6 67 33 39 7b 8a c8 80 00 00 00 6f 3e 6c 7e 66 b6 63 b3 11 71 70 2e a0 00 00 00 66 0e 1b 5f 97 65 93 a7 11 11 38 04 82 00 00 00 3a 3c 9a 16 97 63 93 a3 12 14 dd 64 82 00 00 00 a8 1c b6 34 8b e3 8f f1 12 16 fd 78 91 00 00 00 cd 1c 8e 26 8b f1 97 e1 17 9f 8f 68 81 00 00 00 09 96 03 8e 19 cd d8 4b 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 0a dd c4 3e be cf 20 81 00 00 00 32 1e 32 ce 19 ce 59 8c 38 fb 53 04 85 00 00 00 06 6e 46 de 39 9f 39 9b 7c 75 26 8b 66 00 00 00 94 f3 82 56 38 8b 38 bb 5c 74 12 0c 26 00 00 00 f0 b2 f0 35 9c 0b b8 28 44 64 9c 48 37 00 00 00 f0 b2 e1 30 98 03 f8 18 64 64 95 4a b7 00 00 00 e7 23 e7 62 9a 31 b6 12 64 64 56 3f bf 00 00 00 e7 61 6f 60 92 61 f2 13 60 60 52 be bf 00 00 00 7c ce ec 48 66 b6 e4 30 58 59 35 0a a1 00 00 00 6d cd e4 c8 e6 36 e5 30 40 50 37 88 a3 00 00 00 82 73 8e 9b d3 77 97 37 00 05 3d 00 80 00 00 00 b2 33 ac 33 93 67 93 73 02 19 39 c0 80 00 00 00 c5 59 cd 47 93 67 83 40 04 4c 1d f3 90 00 00 00 c5 52 cd 46 92 65 83 4c 85 85 5e 22 90 00 00 00 6f 56 21 47 18 cf 91 8c 25 e5 1a 24 80 00 00 00 6b 36 32 56 19 ce 14 1b 
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 0b 19 8e 25 b1 5a 04 84 00 00 00 49 65 5e e4 38 8f 38 89 fc 74 c1 8f e7 00 00 00 13 e9 b3 e4 38 cb 78 39 f8 70 b3 0f 27 00 00 00 70 ec 71 6c 98 a3 f8 38 50 72 bb bd 37 00 00 00 74 6c 75 74 99 b1 fc 18 54 70 f9 2c 17 00 00 00 f7 30 eb 30 93 33 b2 33 74 74 48 c7 95 00 00 00 f7 30 eb 30 d3 33 f3 33 f0 70 0c 07 dd 00 00 00 78 c0 70 40 e4 34 e6 30 fb ff bf ce e3 00 00 00 79 c9 72 c9 e6 36 e6 10 da fe ff ff e3 00 00 00 92 81 cc 69 d2 37 96 13 d0 21 25 d3 41 00 00 00 86 a9 8e f9 d2 77 96 5b 70 39 20 82 01 00 00 00 de 4c cc 0d 92 64 93 4c e9 ef 8f f7 90 00 00 00 df 0c cd 8c b0 44 a3 4c e7 df ff fa 90 00 00 00 27 87 23 c3 18 ce 33 46 e5 fd 6c 60 84 00 00 00 27 37 09 d7 19 ce 31 8f 2c bd 38 00 84 00 00 00 23 c1 0d 91 38 8b 58 12
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 0c 31 cb fc f9 f1 87 66 00 00 00 b3 e1 37 e1 38 c7 78 e3 fc f9 f1 f7 26 00 00 00 72 ec 76 2c b8 f1 7c f9 50 52 ff ad 17 00 00 00 76 4c 66 34 99 f1 5c d9 14 d6 dd 68 15 00 00 00 3e 38 37 38 d3 b1 17 38 f3 f0 dc 04 91 00 00 00 7e 30 73 98 f3 31 37 30 00 50 44 0d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 73 ee 78
+uart packet data len=249
+
+ 07 f2 fc 01 f0 0f 0d 87 91 9e a1 a3 a6 a6 a6 a6 a4 a4 a4 a3 9d 7d 5d 91 bd da e4 f0 f4 f5 f8 f8 f8 f8 f6 f6 f6 f5 ed bd 8d d3 f1 ff ff ff ff ff ff ff ff ff ff ff ff ff f6 c5 94 e5 ff ff ff ff ff ff ff ff ff ff ff ff ff ff f6 c5 94 e5 ff ff ff ff ff ff ff ff ff ff ff ff ff ff f6 c5 94 e2 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ee bd 86 d6 fa fe ff fd fa f7 ec e6 df d9 d0 cd cc ca bc 95 61 8c a7 ab ac ab a8 a5 9a 94 8d 87 7e 7b 7a 77 6f 58 37 71 84 a2 a5 aa ab ac ac ac ac ab a7 82 6f 93 ab d0 d4 d8 d9 da da da da d9 d5 a5 8e b3 cf fa fc ff ff ff ff ff ff ff fa c2 a6 d2 ee ff ff ff ff ff ff ff ff ff fa c2 a6 d2 ee ff ff fe fd fa f9 f6 f4 f0 e5 b1 96 b5 cd dc dc d8 d6 d0 cd c8 c6 c2 ba 90 7a 8e a1 ae ad aa a8 a2 9f 9a 97 94 8d 6d 5d cb cb
+ uart packet data len=249
+ 07 f2 fc 01 f0 0f 0e 18 02 12 00 cc 11 f9 0a f7 14 f3 00 d9 15 02 09 16 ee 16 0b 27 e3 06 0b 04 fd fd ef ea 09 f7 06 f7 f9 fe 03 fd f5 ff fa fb 0a 18 f0 e2 fd 10 09 0a f5 fd 06 f5 09 00 0d fe f5 0a 03 01 09 30 df ed 0b 09 fc e4 1a ec ec 18 27 f4 08 09 ec f7 16 f4 07 0c 14 02 0a 07 fb 07 09 07 15 0c f1 12 fa e0 f4 ff f7 f9 04 fb fc fd 07 f3 00 15 05 0b 00 eb f1 ff ec f7 fe 01 00 03 f3 1f 28 f3 01 13 2c 1e 11 04 08 e5 07 16 ef 0e e6 13 02 2a f6 f3 fc 05 ff f6 12 de 0b fc fe 09 ec ff f5 04 f7 09 04 ff 05 10 f2 ed 05 09 03 07 fb fd ff f8 09 08 0f 00 fd 07 03 09 00 1c e7 ed 28 14 13 ee 0e ef e2 05 23 e7 0c 1c 04 07 f4 05 f7 11 fd 00 04 fc 0e fd 12 20 0b fd f3 f5 f6 dc f4 0e ef f3 fc f6 ff 09 09 f2 f5 0b 04 f8 0c f3 ef f8 f7 fc 06 fb 02 24 57 
+ uart packet data len=
+ 07 f2 fc 01 02 0f 0f 00 00 00 00 00 00 00 00 d5 6d
+ 
+ 
+
+
+
